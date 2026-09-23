@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Lobby – Skate</title>
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="main center" id="content">
+    <p class="muted">Raum wird geladen...</p>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/config.js"></script>
+<script src="js/supabaseClient.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/nav.js"></script>
+<script>
+  const content = document.getElementById("content");
+  const roomCode = new URLSearchParams(window.location.search).get("room");
+  let room = null;
+  let userId = null;
+  let channel = null;
+
+  function renderError(msg) {
+    content.innerHTML = `<p class="error-text">${msg}</p>`;
+  }
+
+  function renderLobby(players) {
+    const isHost = userId === room.host_id;
+    const canStart = players.length === 2;
+
+    content.innerHTML = `
+      <p class="eyebrow">Raum</p>
+      <h1 class="head room-code">${room.room_code}</h1>
+
+      <p class="eyebrow">Spieler</p>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:24px;">
+        ${players.map((p) => `
+          <div class="card" style="text-align:center;padding:14px;">🧑 ${p.profiles.username}</div>
+        `).join("")}
+        ${players.length < 2 ? `
+          <div class="card" style="text-align:center;padding:14px;border-style:dashed;color:var(--sub);">
+            Warte auf Spieler 2 ...
+          </div>` : ""}
+      </div>
+
+      <p class="eyebrow">Modus</p>
+      <p class="head" style="font-size:18px;margin:0 0 30px;">${room.mode === "SKATE" ? "S K A T E" : "S K 8"}</p>
+
+      ${isHost
+        ? `<button class="btn btn-primary" id="startBtn" ${canStart ? "" : "disabled"}>
+             ${canStart ? "SPIEL STARTEN" : "WARTE AUF SPIELER 2..."}
+           </button>`
+        : `<p class="muted">Warte, bis der Host das Spiel startet...</p>`}
+    `;
+
+    const startBtn = document.getElementById("startBtn");
+    if (startBtn) {
+      startBtn.addEventListener("click", async () => {
+        const { error } = await window.sb.from("game_rooms").update({ status: "active" }).eq("id", room.id);
+        if (error) return renderError("Spiel konnte nicht gestartet werden.");
+        window.location.href = `play.html?room=${roomCode}`;
+      });
+    }
+  }
+
+  async function loadPlayers() {
+    const { data } = await window.sb
+      .from("game_players")
+      .select("*, profiles(*)")
+      .eq("game_id", room.id)
+      .order("player_order");
+    renderLobby(data || []);
+  }
+
+  async function init() {
+    if (!roomCode) return renderError("Kein Raum-Code angegeben.");
+
+    const user = await requireAuth();
+    if (!user) return;
+    userId = user.id;
+
+    const { data: roomData, error: roomError } = await window.sb
+      .from("game_rooms")
+      .select("*")
+      .eq("room_code", roomCode)
+      .maybeSingle();
+
+    if (roomError || !roomData) return renderError("Dieser Raum existiert nicht mehr.");
+    room = roomData;
+
+    if (room.status === "active") {
+      window.location.href = `play.html?room=${roomCode}`;
+      return;
+    }
+
+    await loadPlayers();
+
+    channel = window.sb
+      .channel(`lobby-${room.id}`)
+      .on("postgres_changes",
+        { event: "*", schema: "public", table: "game_players", filter: `game_id=eq.${room.id}` },
+        loadPlayers)
+      .on("postgres_changes",
+        { event: "UPDATE", schema: "public", table: "game_rooms", filter: `id=eq.${room.id}` },
+        (payload) => {
+          if (payload.new.status === "active") window.location.href = `play.html?room=${roomCode}`;
+        })
+      .subscribe();
+  }
+
+  init();
+</script>
+</body>
+</html>

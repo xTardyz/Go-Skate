@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Skate-Spots – Skate</title>
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="main">
+    <h1 class="page-title head">Skate-Spots</h1>
+    <div id="content"><p class="muted">Spots werden geladen...</p></div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/config.js"></script>
+<script src="js/supabaseClient.js"></script>
+<script src="js/nav.js"></script>
+<script>
+  const content = document.getElementById("content");
+
+  async function init() {
+    const { data: spots } = await window.sb.from("skate_spots").select("*").order("name");
+
+    if (!spots || spots.length === 0) {
+      content.innerHTML = `<p class="muted">Noch keine Spots eingetragen.</p>`;
+      return;
+    }
+
+    content.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        ${spots.map((spot) => `
+          <a href="spot.html?id=${spot.id}" class="card" style="display:block;text-decoration:none;color:inherit;">
+            <p class="head" style="font-size:14px;margin:0;">📍 ${spot.name}</p>
+            <p class="muted" style="font-size:12px;margin:4px 0 0;">
+              ${(spot.obstacles && spot.obstacles.length > 0) ? spot.obstacles.join(" · ") : "Keine Obstacles hinterlegt"}
+            </p>
+          </a>`).join("")}
+      </div>`;
+  }
+
+  init();
+</script>
+</body>
+</html>

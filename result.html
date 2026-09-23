@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ergebnis – Skate</title>
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="main center" id="content">
+    <p class="muted">Ergebnis wird geladen...</p>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/config.js"></script>
+<script src="js/supabaseClient.js"></script>
+<script src="js/gameLogic.js"></script>
+<script src="js/nav.js"></script>
+<script>
+  const content = document.getElementById("content");
+  const roomCode = new URLSearchParams(window.location.search).get("room");
+
+  async function init() {
+    if (!roomCode) {
+      content.innerHTML = `<p class="error-text">Kein Raum-Code angegeben.</p>`;
+      return;
+    }
+
+    const { data: room } = await window.sb.from("game_rooms").select("*").eq("room_code", roomCode).maybeSingle();
+    if (!room) {
+      content.innerHTML = `<p class="error-text">Dieser Raum existiert nicht mehr.</p>`;
+      return;
+    }
+
+    const { data: players } = await window.sb
+      .from("game_players").select("*, profiles(*)").eq("game_id", room.id).order("player_order");
+
+    const { data: rounds } = await window.sb
+      .from("game_rounds").select("*, tricks(*)").eq("game_id", room.id).order("round_number");
+
+    if (!players || players.length < 2) {
+      content.innerHTML = `<p class="muted">Ergebnis wird geladen...</p>`;
+      return;
+    }
+
+    if (room.status !== "finished") {
+      await window.sb.from("game_rooms").update({ status: "finished" }).eq("id", room.id);
+    }
+
+    const playerIds = [players[0].profile_id, players[1].profile_id];
+    const status = getGameStatus(rounds || [], room.mode, playerIds);
+    const winner = players.find((p) => p.profile_id === status.winnerId);
+    const word = getModeWord(room.mode);
+
+    content.innerHTML = `
+      <p class="eyebrow">Game Over</p>
+      <h1 class="head" style="font-size:26px;color:var(--acid);margin:0 0 28px;">
+        🏆 ${winner ? winner.profiles.username.toUpperCase() : "?"} GEWINNT
+      </h1>
+
+      <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:28px;text-align:left;">
+        ${players.map((p) => `
+          <div class="card" style="display:flex;align-items:center;justify-content:space-between;">
+            <span style="font-weight:700;">${p.profiles.username}</span>
+            <div class="letters">
+              ${word.split("").map((l, i) => `
+                <span class="${i < (status.letterCounts[p.profile_id] || 0) ? "lit" : ""}">${l}</span>
+              `).join("")}
+            </div>
+          </div>`).join("")}
+      </div>
+
+      ${(rounds || []).length > 0 ? `
+        <div style="text-align:left;margin-bottom:28px;">
+          <p class="eyebrow">Trick-Verlauf</p>
+          <ol style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:6px;">
+            ${rounds.map((r, i) => `
+              <li class="card" style="padding:10px 14px;font-size:14px;">
+                ${i + 1}. ${r.tricks.name} — ${r.result === "made" ? "✓ geschafft" : "✕ nicht geschafft"}
+              </li>`).join("")}
+          </ol>
+        </div>` : ""}
+
+      <a href="game.html" class="btn btn-primary">NEUES SPIEL</a>
+    `;
+  }
+
+  init();
+</script>
+</body>
+</html>

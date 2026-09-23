@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Game of Skate – Skate</title>
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="main">
+    <h1 class="page-title head">Game of Skate</h1>
+
+    <div class="card">
+      <p class="eyebrow">Neues Spiel</p>
+      <div class="mode-toggle" id="modeToggle">
+        <button data-mode="SKATE" class="active">S K A T E</button>
+        <button data-mode="SK8">S K 8</button>
+      </div>
+      <button class="btn btn-primary" id="createBtn">GAME ERSTELLEN</button>
+    </div>
+
+    <div class="card" style="margin-top:16px;">
+      <p class="eyebrow">Raum beitreten</p>
+      <input class="input" id="joinCode" placeholder="z.B. X7K4P" maxlength="5"
+        style="text-align:center;font-size:18px;font-weight:700;letter-spacing:4px;margin-bottom:12px;">
+      <button class="btn btn-ghost" id="joinBtn">RAUM BEITRETEN</button>
+    </div>
+
+    <p id="errorMsg" class="error-text" style="display:none;"></p>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/config.js"></script>
+<script src="js/supabaseClient.js"></script>
+<script src="js/gameLogic.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/nav.js"></script>
+<script>
+  let mode = "SKATE";
+  const modeToggle = document.getElementById("modeToggle");
+  const createBtn = document.getElementById("createBtn");
+  const joinBtn = document.getElementById("joinBtn");
+  const joinCodeInput = document.getElementById("joinCode");
+  const errorMsg = document.getElementById("errorMsg");
+
+  modeToggle.addEventListener("click", (e) => {
+    const btn = e.target.closest("button");
+    if (!btn) return;
+    mode = btn.dataset.mode;
+    [...modeToggle.children].forEach((b) => b.classList.toggle("active", b === btn));
+  });
+
+  joinCodeInput.addEventListener("input", () => {
+    joinCodeInput.value = joinCodeInput.value.toUpperCase();
+  });
+
+  function showError(msg) {
+    errorMsg.textContent = msg;
+    errorMsg.style.display = "block";
+  }
+
+  createBtn.addEventListener("click", async () => {
+    errorMsg.style.display = "none";
+    const user = await requireAuth();
+    if (!user) return;
+
+    createBtn.disabled = true;
+    createBtn.textContent = "SPIEL WIRD ERSTELLT...";
+
+    const roomCode = generateRoomCode();
+    const { data: room, error: roomError } = await window.sb
+      .from("game_rooms")
+      .insert({ room_code: roomCode, mode, host_id: user.id })
+      .select()
+      .single();
+
+    if (roomError || !room) {
+      showError("Raum konnte nicht erstellt werden.");
+      createBtn.disabled = false;
+      createBtn.textContent = "GAME ERSTELLEN";
+      return;
+    }
+
+    const { error: playerError } = await window.sb
+      .from("game_players")
+      .insert({ game_id: room.id, profile_id: user.id, player_order: 0 });
+
+    if (playerError) {
+      showError("Beitritt zum eigenen Raum fehlgeschlagen.");
+      createBtn.disabled = false;
+      createBtn.textContent = "GAME ERSTELLEN";
+      return;
+    }
+
+    window.location.href = `lobby.html?room=${room.room_code}`;
+  });
+
+  joinBtn.addEventListener("click", async () => {
+    errorMsg.style.display = "none";
+    const code = joinCodeInput.value.trim();
+    if (!code) return;
+
+    const user = await requireAuth();
+    if (!user) return;
+
+    joinBtn.disabled = true;
+    joinBtn.textContent = "TRITT BEI...";
+
+    const { data: room, error: roomError } = await window.sb
+      .from("game_rooms")
+      .select("*")
+      .eq("room_code", code)
+      .maybeSingle();
+
+    if (roomError || !room) {
+      showError("Dieser Raum existiert nicht mehr.");
+      joinBtn.disabled = false;
+      joinBtn.textContent = "RAUM BEITRETEN";
+      return;
+    }
+    if (room.status !== "lobby") {
+      showError("Dieses Spiel wurde bereits gestartet.");
+      joinBtn.disabled = false;
+      joinBtn.textContent = "RAUM BEITRETEN";
+      return;
+    }
+
+    const { data: existingPlayers } = await window.sb
+      .from("game_players")
+      .select("*")
+      .eq("game_id", room.id);
+
+    if (existingPlayers && existingPlayers.length >= 2 &&
+        !existingPlayers.some((p) => p.profile_id === user.id)) {
+      showError("Dieser Raum ist bereits voll.");
+      joinBtn.disabled = false;
+      joinBtn.textContent = "RAUM BEITRETEN";
+      return;
+    }
+
+    if (!existingPlayers.some((p) => p.profile_id === user.id)) {
+      const { error: joinError } = await window.sb
+        .from("game_players")
+        .insert({ game_id: room.id, profile_id: user.id, player_order: 1 });
+
+      if (joinError) {
+        showError("Beitritt fehlgeschlagen.");
+        joinBtn.disabled = false;
+        joinBtn.textContent = "RAUM BEITRETEN";
+        return;
+      }
+    }
+
+    window.location.href = `lobby.html?room=${room.room_code}`;
+  });
+</script>
+</body>
+</html>

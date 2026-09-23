@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Profil – Skate</title>
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="main center" id="content">
+    <p class="muted">Profil wird geladen...</p>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/config.js"></script>
+<script src="js/supabaseClient.js"></script>
+<script src="js/gameLogic.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/nav.js"></script>
+<script>
+  const content = document.getElementById("content");
+
+  async function init() {
+    const user = await getCurrentUser();
+
+    if (!user) {
+      content.innerHTML = `
+        <p class="muted" style="margin-bottom:16px;">Du bist nicht eingeloggt.</p>
+        <a href="login.html" style="color:var(--acid);font-weight:700;">Jetzt anmelden</a>`;
+      return;
+    }
+
+    const { data: profile } = await window.sb.from("profiles").select("*").eq("id", user.id).single();
+
+    const { data: myGamePlayers } = await window.sb.from("game_players").select("game_id").eq("profile_id", user.id);
+    const gameIds = (myGamePlayers || []).map((p) => p.game_id);
+
+    let wins = 0, losses = 0, gamesPlayed = 0;
+
+    if (gameIds.length > 0) {
+      const { data: finishedRooms } = await window.sb
+        .from("game_rooms").select("*").in("id", gameIds).eq("status", "finished");
+
+      for (const room of finishedRooms || []) {
+        const { data: players } = await window.sb
+          .from("game_players").select("*").eq("game_id", room.id).order("player_order");
+        const { data: rounds } = await window.sb
+          .from("game_rounds").select("*").eq("game_id", room.id).order("round_number");
+
+        if (!players || players.length < 2) continue;
+
+        const status = getGameStatus(rounds || [], room.mode, [players[0].profile_id, players[1].profile_id]);
+
+        if (status.status === "finished") {
+          gamesPlayed++;
+          if (status.winnerId === user.id) wins++; else losses++;
+        }
+      }
+    }
+
+    content.innerHTML = `
+      <h1 class="head" style="font-size:22px;margin:0 0 28px;">${profile ? profile.username : "Profil"}</h1>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:20px;">
+        <div class="card"><p class="head" style="font-size:20px;margin:0;">${gamesPlayed}</p><p class="muted" style="font-size:11px;margin-top:4px;">Games</p></div>
+        <div class="card"><p class="head" style="font-size:20px;margin:0;color:var(--acid);">${wins}</p><p class="muted" style="font-size:11px;margin-top:4px;">Siege</p></div>
+        <div class="card"><p class="head" style="font-size:20px;margin:0;color:var(--flame);">${losses}</p><p class="muted" style="font-size:11px;margin-top:4px;">Niederlagen</p></div>
+      </div>
+      <button class="btn btn-ghost" id="logoutBtn">ABMELDEN</button>
+    `;
+    document.getElementById("logoutBtn").addEventListener("click", signOut);
+  }
+
+  init();
+</script>
+</body>
+</html>

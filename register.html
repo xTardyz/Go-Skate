@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Registrieren – Skate</title>
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="main">
+    <h1 class="page-title head">Registrieren</h1>
+    <form id="registerForm" style="display:flex;flex-direction:column;gap:12px;">
+      <input class="input" type="text" id="username" placeholder="Benutzername" required>
+      <input class="input" type="email" id="email" placeholder="E-Mail" required>
+      <input class="input" type="password" id="password" placeholder="Passwort (min. 6 Zeichen)" minlength="6" required>
+      <button class="btn btn-primary" type="submit" id="submitBtn">KONTO ERSTELLEN</button>
+    </form>
+    <p id="errorMsg" class="error-text" style="display:none;"></p>
+    <p class="center muted" style="margin-top:18px;">
+      Schon registriert? <a href="login.html" style="color:var(--acid);">Anmelden</a>
+    </p>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/config.js"></script>
+<script src="js/supabaseClient.js"></script>
+<script src="js/nav.js"></script>
+<script>
+  const form = document.getElementById("registerForm");
+  const errorMsg = document.getElementById("errorMsg");
+  const submitBtn = document.getElementById("submitBtn");
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    errorMsg.style.display = "none";
+    submitBtn.disabled = true;
+    submitBtn.textContent = "WIRD ERSTELLT...";
+
+    const username = document.getElementById("username").value;
+    const email = document.getElementById("email").value;
+    const password = document.getElementById("password").value;
+
+    const { data, error: signUpError } = await window.sb.auth.signUp({ email, password });
+
+    if (signUpError || !data.user) {
+      errorMsg.textContent = (signUpError && signUpError.message.includes("already registered"))
+        ? "Diese E-Mail ist bereits registriert."
+        : "Registrierung fehlgeschlagen. Bitte versuche es erneut.";
+      errorMsg.style.display = "block";
+      submitBtn.disabled = false;
+      submitBtn.textContent = "KONTO ERSTELLEN";
+      return;
+    }
+
+    const { error: profileError } = await window.sb
+      .from("profiles")
+      .insert({ id: data.user.id, username });
+
+    if (profileError) {
+      errorMsg.textContent = "Benutzername ist bereits vergeben.";
+      errorMsg.style.display = "block";
+      submitBtn.disabled = false;
+      submitBtn.textContent = "KONTO ERSTELLEN";
+      return;
+    }
+
+    window.location.href = "index.html";
+  });
+</script>
+</body>
+</html>

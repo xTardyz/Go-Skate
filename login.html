@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Anmelden – Skate</title>
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="main">
+    <h1 class="page-title head">Anmelden</h1>
+    <form id="loginForm" style="display:flex;flex-direction:column;gap:12px;">
+      <input class="input" type="email" id="email" placeholder="E-Mail" required>
+      <input class="input" type="password" id="password" placeholder="Passwort" required>
+      <button class="btn btn-primary" type="submit" id="submitBtn">ANMELDEN</button>
+    </form>
+    <p id="errorMsg" class="error-text" style="display:none;"></p>
+    <p class="center muted" style="margin-top:18px;">
+      Noch kein Konto? <a href="register.html" style="color:var(--acid);">Registrieren</a>
+    </p>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/config.js"></script>
+<script src="js/supabaseClient.js"></script>
+<script src="js/nav.js"></script>
+<script>
+  const form = document.getElementById("loginForm");
+  const errorMsg = document.getElementById("errorMsg");
+  const submitBtn = document.getElementById("submitBtn");
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    errorMsg.style.display = "none";
+    submitBtn.disabled = true;
+    submitBtn.textContent = "WIRD GEPRÜFT...";
+
+    const email = document.getElementById("email").value;
+    const password = document.getElementById("password").value;
+
+    const { error } = await window.sb.auth.signInWithPassword({ email, password });
+
+    if (error) {
+      errorMsg.textContent = "E-Mail oder Passwort ist falsch.";
+      errorMsg.style.display = "block";
+      submitBtn.disabled = false;
+      submitBtn.textContent = "ANMELDEN";
+      return;
+    }
+    window.location.href = "index.html";
+  });
+</script>
+</body>
+</html>

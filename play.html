@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Spiel – Skate</title>
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="main">
+    <div id="letters" style="display:flex;flex-direction:column;gap:12px;margin-bottom:6px;"></div>
+    <div class="divider"></div>
+    <div id="content">
+      <p class="muted center">Spiel wird geladen...</p>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/config.js"></script>
+<script src="js/supabaseClient.js"></script>
+<script src="js/gameLogic.js"></script>
+<script src="js/tricksSearch.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/nav.js"></script>
+<script>
+  const RECENT_KEY = "gos_recent_tricks";
+  function loadRecent() {
+    try { return JSON.parse(localStorage.getItem(RECENT_KEY) || "[]"); } catch { return []; }
+  }
+  function saveRecent(ids) {
+    try { localStorage.setItem(RECENT_KEY, JSON.stringify(ids)); } catch {}
+  }
+
+  const lettersEl = document.getElementById("letters");
+  const content = document.getElementById("content");
+  const roomCode = new URLSearchParams(window.location.search).get("room");
+
+  let room = null, players = [], rounds = [], tricks = [], userId = null;
+  let recentIds = loadRecent();
+  let pendingRound = null; // { trick }
+  let channel = null;
+
+  function renderError(msg) {
+    content.innerHTML = `<p class="error-text">${msg}</p>`;
+  }
+
+  function renderLetters(status) {
+    lettersEl.innerHTML = players.map((p) => {
+      const word = getModeWord(room.mode);
+      const count = status.letterCounts[p.profile_id] || 0;
+      const isTurn = p.profile_id === currentSetterId();
+      return `
+        <div class="letter-row">
+          <span class="letter-name ${isTurn ? "active" : ""}">${p.profiles.username.toUpperCase()}</span>
+          <div class="letters">
+            ${word.split("").map((l, i) => `<span class="${i < count ? "lit" : ""}">${l}</span>`).join("")}
+          </div>
+        </div>`;
+    }).join("");
+  }
+
+  function currentSetterId() {
+    const lastRound = rounds.length > 0 ? rounds[rounds.length - 1] : null;
+    return getNextSetter(lastRound, players[0].profile_id);
+  }
+
+  function renderTrickPicker(onConfirm) {
+    let query = "";
+    let category = null;
+    let selected = null;
+
+    function draw() {
+      if (selected) {
+        content.innerHTML = `
+          <div class="center" style="padding:24px 0;">
+            <p class="eyebrow">Trick ausgewählt</p>
+            <h1 class="head" style="font-size:28px;margin:0 0 8px;">🛹 ${selected.name.toUpperCase()}</h1>
+            <p class="muted" style="margin-bottom:28px;">${categoryName(selected.category)} · Stufe ${selected.difficulty}</p>
+            <button class="btn btn-primary" id="confirmBtn">TRICK BESTÄTIGEN</button>
+            <button class="btn btn-ghost" id="backBtn" style="margin-top:10px;">ZURÜCK</button>
+          </div>`;
+        document.getElementById("confirmBtn").addEventListener("click", () => onConfirm(selected));
+        document.getElementById("backBtn").addEventListener("click", () => { selected = null; draw(); });
+        return;
+      }
+
+      const filtered = filterTricks(tricks, query, category);
+      const recentTricks = recentIds.map((id) => tricks.find((t) => t.id === id)).filter(Boolean);
+
+      content.innerHTML = `
+        <h2 class="head" style="font-size:19px;margin:0 0 14px;">DU BIST DRAN</h2>
+        <input class="input" id="searchInput" placeholder="🔍 Trick suchen …" value="${query}">
+        ${recentTricks.length > 0 ? `
+          <p class="eyebrow" style="margin-top:18px;">Zuletzt verwendet</p>
+          <div class="chip-row">${recentTricks.map((t) => `<button class="quick-chip" data-id="${t.id}">${t.name}</button>`).join("")}</div>
+        ` : ""}
+        <p class="eyebrow" style="margin-top:18px;">Kategorien</p>
+        <div class="chip-row">
+          <button class="chip ${category === null ? "active" : ""}" data-cat="">Alle</button>
+          ${TRICK_CATEGORIES.map((c) => `<button class="chip ${category === c.id ? "active" : ""}" data-cat="${c.id}">${c.name}</button>`).join("")}
+        </div>
+        <div class="trick-grid">
+          ${filtered.length === 0
+            ? `<p class="muted center" style="grid-column:1/-1;padding:24px 0;">Keine Tricks gefunden.</p>`
+            : filtered.map((t) => `
+              <div class="trick-card" data-id="${t.id}">
+                <div class="n">🛹 ${t.name}</div>
+                <div class="d">${categoryName(t.category)}</div>
+              </div>`).join("")}
+        </div>`;
+
+      document.getElementById("searchInput").addEventListener("input", (e) => { query = e.target.value; draw(); });
+      content.querySelectorAll("[data-cat]").forEach((el) =>
+        el.addEventListener("click", () => { category = el.dataset.cat || null; draw(); }));
+      content.querySelectorAll("[data-id]").forEach((el) =>
+        el.addEventListener("click", () => {
+          selected = tricks.find((t) => t.id === el.dataset.id);
+          draw();
+        }));
+    }
+
+    draw();
+  }
+
+  function renderAttemptScreen(setter, defender, trick, canResolve) {
+    content.innerHTML = `
+      <div class="center" style="padding:16px 0;">
+        <h2 class="head" style="font-size:19px;margin:0 0 14px;">${defender.profiles.username.toUpperCase()} VERSUCHT:</h2>
+        <h1 class="head" style="font-size:28px;margin:0 0 28px;">🛹 ${trick.name.toUpperCase()}</h1>
+        ${canResolve
+          ? `<div class="attempt-row">
+               <button class="btn-primary" id="madeBtn" style="border-radius:14px;">✓ GESCHAFFT</button>
+               <button class="btn-danger" id="missedBtn" style="border-radius:14px;">✕ NICHT GESCHAFFT</button>
+             </div>`
+          : `<p class="muted">Warte auf das Ergebnis...</p>`}
+      </div>`;
+
+    if (canResolve) {
+      document.getElementById("madeBtn").addEventListener("click", () => resolveAttempt(true));
+      document.getElementById("missedBtn").addEventListener("click", () => resolveAttempt(false));
+    }
+  }
+
+  function renderWaitingScreen(setterName) {
+    content.innerHTML = `
+      <div class="center" style="padding:60px 0;">
+        <h2 class="head" style="font-size:19px;">${setterName.toUpperCase()} IST DRAN</h2>
+        <p class="muted" style="margin-top:8px;">Warte, bis ein Trick gewählt wird...</p>
+      </div>`;
+  }
+
+  function render() {
+    const playerIds = [players[0].profile_id, players[1].profile_id];
+    const status = getGameStatus(rounds, room.mode, playerIds);
+    renderLetters(status);
+
+    if (status.status === "finished") {
+      window.location.href = `result.html?room=${roomCode}`;
+      return;
+    }
+
+    const setterId = currentSetterId();
+    const setter = players.find((p) => p.profile_id === setterId);
+    const defender = players.find((p) => p.profile_id !== setterId);
+    const isMySetTurn = userId === setterId;
+    const isMyDefendTurn = userId === defender.profile_id;
+
+    if (pendingRound) {
+      renderAttemptScreen(setter, defender, pendingRound.trick, isMySetTurn || isMyDefendTurn);
+    } else if (isMySetTurn) {
+      renderTrickPicker((trick) => {
+        recentIds = [trick.id, ...recentIds.filter((id) => id !== trick.id)].slice(0, 8);
+        saveRecent(recentIds);
+        pendingRound = { trick };
+        render();
+      });
+    } else {
+      renderWaitingScreen(setter.profiles.username);
+    }
+  }
+
+  async function resolveAttempt(made) {
+    const playerIds = [players[0].profile_id, players[1].profile_id];
+    const setterId = currentSetterId();
+    const setter = players.find((p) => p.profile_id === setterId);
+    const defender = players.find((p) => p.profile_id !== setterId);
+    const roundNumber = rounds.length + 1;
+
+    const { error } = await window.sb.from("game_rounds").insert({
+      game_id: room.id,
+      round_number: roundNumber,
+      setter_id: setter.profile_id,
+      defender_id: defender.profile_id,
+      trick_id: pendingRound.trick.id,
+      result: made ? "made" : "missed",
+    });
+
+    if (error) return renderError("Verbindung zum Server verloren. Bitte versuche es erneut.");
+    pendingRound = null;
+    // Kein manuelles Neuladen noetig - die Realtime-Subscription liefert die neue Runde.
+  }
+
+  async function loadRounds() {
+    const { data } = await window.sb
+      .from("game_rounds")
+      .select("*")
+      .eq("game_id", room.id)
+      .order("round_number");
+    rounds = data || [];
+    render();
+  }
+
+  async function init() {
+    if (!roomCode) return renderError("Kein Raum-Code angegeben.");
+
+    const user = await requireAuth();
+    if (!user) return;
+    userId = user.id;
+
+    const { data: roomData, error: roomError } = await window.sb
+      .from("game_rooms")
+      .select("*")
+      .eq("room_code", roomCode)
+      .maybeSingle();
+
+    if (roomError || !roomData) return renderError("Dieser Raum existiert nicht mehr.");
+    room = roomData;
+
+    const { data: playersData } = await window.sb
+      .from("game_players")
+      .select("*, profiles(*)")
+      .eq("game_id", room.id)
+      .order("player_order");
+    players = playersData || [];
+
+    if (players.length < 2) return renderError("Warte, bis beide Spieler im Raum sind.");
+
+    const { data: tricksData } = await window.sb.from("tricks").select("*").order("name");
+    tricks = tricksData || [];
+
+    await loadRounds();
+
+    channel = window.sb
+      .channel(`play-${room.id}`)
+      .on("postgres_changes",
+        { event: "INSERT", schema: "public", table: "game_rounds", filter: `game_id=eq.${room.id}` },
+        loadRounds)
+      .subscribe();
+  }
+
+  init();
+</script>
+</body>
+</html>

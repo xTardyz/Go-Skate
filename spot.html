@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Spot – Skate</title>
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="main" id="content">
+    <p class="muted">Spot wird geladen...</p>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/config.js"></script>
+<script src="js/supabaseClient.js"></script>
+<script src="js/nav.js"></script>
+<script>
+  const content = document.getElementById("content");
+  const spotId = new URLSearchParams(window.location.search).get("id");
+
+  async function init() {
+    if (!spotId) {
+      content.innerHTML = `<p class="error-text">Kein Spot angegeben.</p>`;
+      return;
+    }
+
+    const { data: spot } = await window.sb.from("skate_spots").select("*").eq("id", spotId).maybeSingle();
+
+    if (!spot) {
+      content.innerHTML = `<p class="error-text">Dieser Spot wurde nicht gefunden.</p>`;
+      return;
+    }
+
+    const obstacles = spot.obstacles || [];
+
+    content.innerHTML = `
+      <h1 class="head" style="font-size:22px;margin:0 0 4px;">📍 ${spot.name}</h1>
+      <p class="muted" style="margin-bottom:22px;">Schwierigkeitsgrad: ${spot.difficulty}/5</p>
+
+      <div class="card">
+        <p class="eyebrow">Obstacles</p>
+        ${obstacles.length === 0
+          ? `<p class="muted" style="margin:0;">Keine Angaben.</p>`
+          : `<div style="display:flex;flex-wrap:wrap;gap:8px;">
+              ${obstacles.map((o) => `<span style="border:1px solid var(--line);border-radius:999px;padding:6px 12px;font-size:12px;">${o}</span>`).join("")}
+            </div>`}
+      </div>
+      <!-- Platzhalter: hier kann spaeter problemlos eine interaktive Karte
+           (z.B. Leaflet) auf Basis von location_lat/location_lng ergaenzt werden. -->
+    `;
+  }
+
+  init();
+</script>
+</body>
+</html>
